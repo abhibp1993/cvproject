@@ -39,14 +39,14 @@ while (cap.isOpened()):
         cnt = contours[areas[1]]
         hull = cv2.convexHull(cnt)
 
-        # Save contour
-        saveCnt = copy.deepcopy(img)
-        saveCnt[:] = 0
-        
+    drawing = np.zeros(img.shape)
+    for i in xrange(len(contours)):
+        if cv2.contourArea(contours[i]) > 5000:  # just a condition
+            cv2.drawContours(drawing, contours, i, (255, 255, 255), 1, 8, hierarchy)
 
     # Show Updates
-    cv2.imshow("mask", mask)
-    cv2.imshow("erode", opening)
+    cv2.imshow("mask", drawing)
+    cv2.imshow("erode", img)
     cv2.imshow("image", img2)
 
     if cv2.waitKey(3) == ord('q'):
