@@ -49,9 +49,6 @@ while (cap.isOpened()):
     cv2.imshow("erode", img)
     cv2.imshow("image", img2)
 
-    if cv2.waitKey(3) == ord('p'):
-        cv2.imwrite("4.jpg",drawing)
-    
     if cv2.waitKey(3) == ord('q'):
         break
 
