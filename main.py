@@ -12,6 +12,13 @@ vu = 255
 cv2.namedWindow('image')
 
 kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (10, 10))
+template = cv2.imread('img/2.jpg', 0)
+print len(template[np.where(template>200)])
+ret,thresh = cv2.threshold(template, 254, 255, cv2.THRESH_BINARY)
+contours1, hierarchy1 = cv2.findContours(thresh, 1, 2)
+
+print len(contours1), [cv2.contourArea(cnt) for cnt in contours1]
+
 
 cap = cv2.VideoCapture(0)
 while (cap.isOpened()):
@@ -31,7 +38,7 @@ while (cap.isOpened()):
     contours, hierarchy = cv2.findContours(opening, 1, 2)
     areas = [cv2.contourArea(cnt) for cnt in contours]
     areas = [(areas[i], i) for i in range(len(areas)) if areas[i] > 5000]
-    print areas
+    #print areas
 
     # Fit convex hull
     if len(areas) > 0:
@@ -39,14 +46,18 @@ while (cap.isOpened()):
         cnt = contours[areas[1]]
         hull = cv2.convexHull(cnt)
 
-    drawing = np.zeros(img.shape)
+    drawing = np.zeros(img.shape[0:2])
     for i in xrange(len(contours)):
         if cv2.contourArea(contours[i]) > 5000:  # just a condition
-            cv2.drawContours(drawing, contours, i, (255, 255, 255), 1, 8, hierarchy)
+            cv2.drawContours(drawing, contours, i, 255, 1, 8, hierarchy)
+
+    # for c in contours:
+    #     ret = cv2.matchShapes(c, contours1[0], 1, 0.0)
+    #     print(ret)
 
     # Show Updates
     cv2.imshow("mask", drawing)
-    cv2.imshow("erode", img)
+    cv2.imshow("erode", thresh)
     cv2.imshow("image", img2)
 
     if cv2.waitKey(3) == ord('p'):
