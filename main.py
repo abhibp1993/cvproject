@@ -12,13 +12,39 @@ vu = 255
 cv2.namedWindow('image')
 
 kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (10, 10))
-template = cv2.imread('img/2.jpg', 0)
-print len(template[np.where(template>200)])
-ret,thresh = cv2.threshold(template, 254, 255, cv2.THRESH_BINARY)
-contours1, hierarchy1 = cv2.findContours(thresh, 1, 2)
 
-print len(contours1), [cv2.contourArea(cnt) for cnt in contours1]
+##template = cv2.imread('img/4.bmp', 0)
+##print len(template[np.where(template>200)])
+##ret,thresh = cv2.threshold(template, 127, 255, cv2.THRESH_BINARY)
+##contours1, hierarchy1 = cv2.findContours(thresh, 1, 2)
+##
+##print len(contours1), [cv2.contourArea(cnt) for cnt in contours1]
 
+##template = open('dino4.txt', 'r')
+##template.
+##template = template.split(',')[:-1]
+##template = np.array(template)
+##template.reshape((640, 480))
+##cv2.imshow('img', template)
+##cv2.waitKey(0)
+try:
+    template1 = np.loadtxt('dino1.txt',np.uint8)
+    contours1, hierarchy1 = cv2.findContours(template1, 1, 2)
+    template2 = np.loadtxt('dino2.txt', np.uint8)
+    contours2, hierarchy2 = cv2.findContours(template2, 1, 2)
+    template3 = np.loadtxt('dino3.txt',np.uint8)
+    contours3, hierarchy3 = cv2.findContours(template3, 1, 2)
+    template4 = np.loadtxt('dino4.txt',np.uint8)
+    contours4, hierarchy4 = cv2.findContours(template4, 1, 2)
+    #areas = [cv2.contourArea(cnt) for cnt in contours1]
+    #print (areas)
+    #template = np.fromarray(template)
+    #print len(contours1)
+    #ret, thresh = cv2.threshold(template, 127, 255, cv2.THRESH_BINARY)
+    
+    cv2.imshow('hello', template1)
+except  Exception, e:
+    print e
 
 cap = cv2.VideoCapture(0)
 while (cap.isOpened()):
@@ -51,18 +77,28 @@ while (cap.isOpened()):
         if cv2.contourArea(contours[i]) > 5000:  # just a condition
             cv2.drawContours(drawing, contours, i, 255, 1, 8, hierarchy)
 
-    # for c in contours:
-    #     ret = cv2.matchShapes(c, contours1[0], 1, 0.0)
-    #     print(ret)
-
+    for c in contours:
+        ret = cv2.matchShapes(c, contours2[0], 1, 0.0)
+        print(ret)
     # Show Updates
     cv2.imshow("mask", drawing)
-    cv2.imshow("erode", thresh)
+##    cv2.imshow("erode", thresh)
     cv2.imshow("image", img2)
 
     if cv2.waitKey(3) == ord('p'):
-        cv2.imwrite("4.jpg",drawing)
-    
+##        f = open('dino4.txt', 'w')
+##        x, y = drawing.shape
+##        for i in range(x):
+##            for j in range(y):
+##                if drawing[i, j] != 0:
+##                    f.write(str(255) + ',')
+##                else:
+##                    f.write(str(0) + ',')
+##        f.close()
+##        
+         np.savetxt('dino4.txt', drawing)
+
+         
     if cv2.waitKey(3) == ord('q'):
         break
 
