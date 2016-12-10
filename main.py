@@ -64,7 +64,7 @@ while (cap.isOpened()):
     contours, hierarchy = cv2.findContours(opening, 1, 2)
     areas = [cv2.contourArea(cnt) for cnt in contours]
     areas = [(areas[i], i) for i in range(len(areas)) if areas[i] > 5000]
-    #print areas
+    # print areas
 
     # Fit convex hull
     if len(areas) > 0:
