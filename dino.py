@@ -98,7 +98,21 @@ def preprocess_homography(img):
     :param img: Raw RGB image
     :return: 4 corner points as 2-tuples in image coordinate [bottom-left, bottom-right, top-right, top-left]
     """
-    pass
+
+    # Filter Image
+    blur_img = cv2.GaussianBlur(img, (11, 11), 5)
+
+    # Convert to HSV
+    hsv = cv2.cvtColor(blur_img, cv2.COLOR_BGR2HSV_FULL)
+
+    # Extract Red-Color Dinosaur
+    red_mask1 = cv2.inRange(hsv, np.array([0, 100, 100]), np.array([10, 255, 255]))
+    red_mask2 = cv2.inRange(hsv, np.array([160, 100, 100]), np.array([179, 255, 255]))
+    mask = cv2.bitwise_or(red_mask1, red_mask2)
+
+    
+    return mask
+
 
 
 def apply_homography(img, points):
@@ -202,6 +216,8 @@ def overlay_textures(img, contours, idx_template_pairs):
     :param idx_template_pairs: 2-tuple of (contour index, template index)
     :return: texture overlayed image
     """
+    print idx_template_pairs
+    ret_img = img
     for idx_cntr, idx_tmp in idx_template_pairs:
         # Create mask
         mask = np.zeros(img.shape, np.uint8)
@@ -212,12 +228,13 @@ def overlay_textures(img, contours, idx_template_pairs):
         txtr = cv2.resize(textures[idx_tmp], (cols, rows))
 
         # Apply mask over texture
-        binary_img = cv2.bitwise_and(txtr, mask)
+        masked_img = cv2.bitwise_and(txtr, mask)
+        _, binary_mask = cv2.threshold(masked_img, 1, 255, cv2.THRESH_BINARY)
 
-        # Add the mask with original image
-        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-        ret_img = cv2.bitwise_and(img, np.zeros(img.shape, np.uint8), mask=mask)
-        ret_img = ret_img + binary_img
+        # Add the mask with original image1
+        binary_mask = cv2.bitwise_not(binary_mask)
+        crop_img = cv2.bitwise_and(ret_img, binary_mask)
+        ret_img = crop_img + masked_img
 
     return ret_img
 
@@ -249,7 +266,7 @@ def main():
         ret, img = video.read()
 
         # Homography
-        # img_pre_hpoints = preprocess_homography(img)
+        img_pre_hpoints = preprocess_homography(img)
         # hgraph_img, world_pose = apply_homography(img, img_pre_hpoints)
 
         # Classify Dinosaur
@@ -273,8 +290,8 @@ def main():
         # Show Image
         cv2.imshow("raw_input", img)
         cv2.imshow("dino_segmented", disp_img)
+        cv2.imshow("red-color", img_pre_hpoints)
         cv2.waitKey(3)
-
 
 
 if __name__ == '__main__':
