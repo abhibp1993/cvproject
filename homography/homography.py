@@ -3,24 +3,6 @@ from __future__ import print_function
 import cv2
 import numpy as np
 
-def perp( a ) :
-    b = np.empty_like(a)
-    b[0] = -a[1]
-    b[1] = a[0]
-    return b
-
-# line segment a given by endpoints a1, a2
-# line segment b given by endpoints b1, b2
-# return
-def seg_intersect(a1,a2, b1,b2) :
-    da = a2-a1
-    db = b2-b1
-    dp = a1-b1
-    dap = perp(da)
-    denom = np.dot( dap, db)
-    num = np.dot( dap, dp )
-    return (num / denom.astype(float))*db + b1
-
 
 # RED: hl=0;sl=127;vl=63;hu=15;su=255;vu=255;
 # GREEN: hl=120;sl=80;vl=40;hu=140;su=255;vu=200;
@@ -33,8 +15,10 @@ color_parameters = [
     ('yellow', [(35, 100, 40, 55, 255, 255)], (0, 255, 255)),
 ]
 
+last_good_points = None
 
 def process_frame(frame):
+    global last_good_points
     # Our operations on the frame come here
 
     out = frame
@@ -78,43 +62,51 @@ def process_frame(frame):
             if M["m00"] == 0:
                 break
 
+            c_x = int(M["m10"] / M["m00"])
+            c_y = int(M["m01"] / M["m00"])
 
-            cX = int(M["m10"] / M["m00"])
-            cY = int(M["m01"] / M["m00"])
-
-            points[color_name].append(np.array([cX, cY]))
+            points[color_name].append(np.array([c_x, c_y]))
 
             # draw the contour and center of the shape on the image
-            cv2.circle(mask_out, (cX, cY), 7, (255, 255, 255), -1)
-            cv2.putText(mask_out, "center", (cX - 20, cY - 20),
+            cv2.circle(mask_out, (c_x, c_y), 7, (255, 255, 255), -1)
+            cv2.putText(mask_out, "center", (c_x - 20, c_y - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
     try:
         red = points['red'][0]
         yellow = points['yellow'][0]
         # Find which blue point is the top left
-        if np.dot(yellow - points['blue'][0], points['blue'][0] - red) > 0:
+
+        if np.dot(yellow - points['blue'][0], points['blue'][1] - points['blue'][0]) > 0:
             # dot product of the vectors is positive if it's the top left point, negative otherwise
             [blue_topleft, blue_bottomright] = points['blue']
         else:
             [blue_bottomright, blue_topleft] = points['blue']
     except (IndexError, ValueError):
-        return reduce(cv2.max, outlist)
+        if last_good_points is not None:
+            src_points = last_good_points
+        else:
+            return reduce(cv2.max, outlist)
+    else:
+        src_points = np.array([blue_topleft, yellow, red, blue_bottomright], dtype=np.float32)
+        last_good_points = src_points
 
     width, height = frame.shape[:2]
 
-    src_points = np.array([blue_topleft, yellow, red, blue_bottomright], dtype=np.float32)
-    dst_points = np.array([[0, 0], [0, width], [height, 0], [height, width]], dtype=np.float32)
+    # Shrink width so it fits the aspect ratio of the letter-size paper (4:3 after considering ~1/2 inch offsets)
+    width = int(height * 0.75)
 
-    print(src_points)
-    print(dst_points)
+    width, height = width // 10 * 8, height // 10 * 8
+
+    dst_points = np.array([[0, 0], [0, width], [height, 0], [height, width]], dtype=np.float32)
 
     assert src_points.shape == dst_points.shape
 
     perspective_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
     output = cv2.warpPerspective(frame, perspective_matrix, (height, width))
 
-    # cv2.imshow("mask", reduce(cv2.max, outlist))
+    cv2.imshow("mask", reduce(cv2.max, outlist))
+    cv2.imshow("input", frame)
     return output
 
 # Set up camera
