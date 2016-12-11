@@ -76,9 +76,9 @@ def _segment_color(img, color, filt=None):
         bin_img = cv2.inRange(hsv_img, np.array(COLOR_HSV_RANGES[color]['low']), np.array(COLOR_HSV_RANGES[color]['high']))
 
     # Perform Opening to remove small specks, closing for removing holes
-    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (10, 10))
-    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
-    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+    #kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (10, 10))
+    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
+    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
 
     return bin_img
 
@@ -108,20 +108,25 @@ def preprocess_homography(img):
     # Loop over contours to find
     for c in contours_red:
         peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+        approx = cv2.approxPolyDP(c, 0.07 * peri, True)
         if 5 > len(approx) > 3:
+            print len(approx),"red"
+            
             cv2.drawContours(img, [approx], -1, COLOR_HSV_RANGES[RED]['rgb'], 3)
 
     for c in contours_blue:
         peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+        approx = cv2.approxPolyDP(c, 0.07 * peri, True)
         if 5 > len(approx) > 3:
+            print len(approx),"blue"
             cv2.drawContours(img, [approx], -1, COLOR_HSV_RANGES[BLUE]['rgb'], 3)
 
     for c in contours_yellow:
         peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+        approx = cv2.approxPolyDP(c, 0.07 * peri, True)
+        
         if 5 > len(approx) > 3:
+            print len(approx),"yellow"
             cv2.drawContours(img, [approx], -1, COLOR_HSV_RANGES[YELLOW]['rgb'], 3)
 
     return img
@@ -145,6 +150,9 @@ def main_test():
         cv2.imshow('Yellow', y)
         cv2.imshow('Blue', b)
         cv2.waitKey(3)
+        if cv2.waitKey(3)== ord('q'):
+            break
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
