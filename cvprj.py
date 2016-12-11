@@ -37,7 +37,7 @@ textures = dict()
 # Color ranges
 COLOR_HSV_RANGES = {'red': {'low': [], 'high': [], 'rgb': (0, 0, 255)},
                     'blue': {'low': [58, 33, 0], 'high': [163, 173, 255], 'rgb': (255, 0, 0)},
-                    'yellow': {'low': [35, 100, 0], 'high': [55, 255, 255], 'rgb': (0, 255, 255)},
+                    'yellow': {'low': [31, 26, 98], 'high': [42, 255, 255], 'rgb': (0, 255, 255)},
                     #'yellow': {'low': [27, 59, 11], 'high': [45, 255, 255], 'rgb': (0, 255, 255)},
                     'green': {'low': [25, 40, 0], 'high': [142, 134, 253]}, 'rgb': (0, 255, 0)}
 RED = 'red'
@@ -134,9 +134,10 @@ def _segment_color(img, color, filt=None):
     """
     # Apply filter
     if filt == GAUSSIAN:
-        filt_img = cv2.GaussianBlur(img, (11, 11), 5)
+        filt_img = cv2.GaussianBlur(img, (5, 5), 5)
+        #filt_img = cv2.medianBlur(filt_img, 5)
     elif filt == MEDIAN:
-        filt_img = cv2.medianBlur(img, 5)
+        filt_img = cv2.medianBlur(img, 9)
     else:
         filt_img = img
 
@@ -152,9 +153,10 @@ def _segment_color(img, color, filt=None):
         bin_img = cv2.inRange(hsv_img, np.array(COLOR_HSV_RANGES[color]['low']), np.array(COLOR_HSV_RANGES[color]['high']))
 
     # Perform Opening to remove small specks, closing for removing holes
-    #kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (10, 10))
-    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
-    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+    kernel1 = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 16))
+    kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_ERODE, kernel1)
+    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel2)
 
     return bin_img
 
@@ -463,7 +465,7 @@ def main_test():
             # Overlay texture(s) on corresponding dino(s)
             disp_img = overlay_textures(tr_img, contours_dinos, dinos)
 
-
+        cv2.imshow('yellow', y)
         cv2.imshow('img', img)
         cv2.imshow('disp_img', disp_img)
         cv2.imshow('tr_img', tr_img)
