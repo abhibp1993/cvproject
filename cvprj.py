@@ -38,7 +38,7 @@ textures = dict()
 previous_selected_dino = None
 guess_correct = None
 
-dino_names = ['Glyptodon', 'Stegosaurus', 'T. Rex', 'Brachiosaurus']
+dino_names = ['T. Rex', 'Stegosaurus', 'Glyptodon', 'Brachiosaurus']
 
 # Color ranges
 COLOR_HSV_RANGES = {'red': {'low': [], 'high': [], 'rgb': (0, 0, 255)},
@@ -55,11 +55,11 @@ GAUSSIAN = 'gaussian filter'
 MEDIAN = 'median filter'
 
 # Define filter
-SMA_WINDOW = 10
-filt_state = {'p0': [(0, 0)] * SMA_WINDOW,
+SMA_WINDOW = 5
+filt_state = {'p0': [(0, 720)] * SMA_WINDOW,
               'p1': [(0, 0)] * SMA_WINDOW,
-              'p2': [(0, 0)] * SMA_WINDOW,
-              'p3': [(0, 0)] * SMA_WINDOW}
+              'p2': [(1280, 0)] * SMA_WINDOW,
+              'p3': [(1280, 720)] * SMA_WINDOW}
 
 # State of each dino in the game
 # Values are NOT_PRESENT, PRESENT, GUESSING_1, GUESSING_2, GUESSING_3, GUESSED_MSG, GUESSED
@@ -313,7 +313,7 @@ def applyTransform(img, points):
     :return: transformed image
     """
     # Define new image dimensions
-    height = 640
+    height = 840
     width = int(height * 0.75)
     width, height = width // 10 * 8, height // 10 * 8
 
@@ -362,13 +362,11 @@ def preprocess_dinos(img):
 def find_dinos(img, contours):
     """
     Uses morphological processing to detect dinosaurs from input binary image.
-
     :param img_pre_dinos: binary image
     :return: 2-tuple of (contour index, template index)
-
     @remark: Use global templates.
     """
-    SIMILARITY_THRESHOLD = 0.3
+    SIMILARITY_THRESHOLD = 0.35
     MIN_AREA_THRESHOLD = 3000
 
     # Select contours that are sufficiently large
@@ -376,6 +374,7 @@ def find_dinos(img, contours):
     minarea_idx = [i for i in range(len(areas)) if areas[i] > MIN_AREA_THRESHOLD]
 
     # For each contour, compare it with each of templates
+    _available_dinosaurs = [True]*4
     dino_contours = list()
     for idx in minarea_idx:
         cntr = contours[idx]
@@ -387,11 +386,20 @@ def find_dinos(img, contours):
         match_dino4 = cv2.matchShapes(cntr, dino4_template[0], 1, 0)    # using I1 moments
         matches = [match_dino1, match_dino2, match_dino3, match_dino4]
 
+        # Patch to make avoid repetitions in dinosaurs.
+        matches_sorted = sorted(matches)
+        for i in range(4):
+            i_unsorted = matches.index(matches_sorted[i])
+            if _available_dinosaurs[i_unsorted]:
+                dino_contours.append((idx, i_unsorted))
+                _available_dinosaurs[i_unsorted] = False
+                break
+
         # If we have at least one good match, then choose the corresponding template
-        if min(matches) < SIMILARITY_THRESHOLD:
-            idx_template = matches.index(min(matches))
-            idx_contour = idx
-            dino_contours.append((idx_contour, idx_template))
+        # if min(matches) < SIMILARITY_THRESHOLD:
+        #     idx_template = matches.index(min(matches))
+        #     idx_contour = idx
+        #     dino_contours.append((idx_contour, idx_template))
 
     return dino_contours
 
@@ -428,6 +436,15 @@ def overlay_textures(img, contours, idx_template_pairs):
     return ret_img
 
 
+def overlay_labels(input_img, contours, dinos):
+    for idx_cntr, idx_tmp in dinos:
+        M = cv2.moments(contours[idx_cntr])
+        cx = int(M['m10'] / M['m00'])
+        cy = int(M['m01'] / M['m00'])
+
+        cv2.putText(input_img, dino_names[idx_tmp], (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+
 def main_test():
     global active_dino, guess_correct, previous_selected_dino
     # Load Templates
@@ -450,24 +467,23 @@ def main_test():
     while True:
 
         # Read Image
-        _, img = video.read()
-        r = _segment_color(img, RED, GAUSSIAN)
-        y = _segment_color(img, YELLOW, GAUSSIAN)
-        b = _segment_color(img, BLUE, GAUSSIAN)
+        _, img_original = video.read()
+        r = _segment_color(img_original, RED, GAUSSIAN)
+        y = _segment_color(img_original, YELLOW, GAUSSIAN)
+        b = _segment_color(img_original, BLUE, GAUSSIAN)
 
         # cv2.imshow('r', r)
         # cv2.imshow('y', y)
         # cv2.imshow('b', b)
 
-        img, points = preprocess_homography(img)
+        img, points = preprocess_homography(img_original)
         points = _filt_hgrf_points(points)
         #print np.array(points)
-        tr_img = applyTransform(img, points)
+        tr_img = applyTransform(img_original, points)
 
         # Classify Dinosaur
         img_bin_dinos, contours_dinos = preprocess_dinos(tr_img)
         dinos = find_dinos(img_bin_dinos, contours_dinos)
-        print len(dinos)
 
         contours_ordered = [None]*4
         for contour_idx, dino_idx in dinos:
@@ -476,13 +492,13 @@ def main_test():
         key = cv2.waitKey(20)
         if key == ord('q') or key == 27:
             break
-        elif key == ord(' ') and dino_states[active_dino] == 'GUESSED_MSG':
+        elif key == ord(' ') and active_dino is not None and dino_states[active_dino] == 'GUESSED_MSG':
             dino_states[active_dino] = 'GUESSED'
             active_dino = None
             guess_correct = None
 
         try:
-            selected_dino = int(chr(key))
+            selected_dino = int(chr(key)) - 1
             previous_selected_dino = selected_dino
         except ValueError:
             selected_dino = None
@@ -540,10 +556,12 @@ def main_test():
             # Get Dino Pose(s)
             # dino_types, dino_poses = get_poses(img_bin_dinos, dinos)
 
-            dinos_to_texture = [(ci, di) for ci, di in dinos if dino_states[di] in ['GUESSED', 'GUESSING_2', 'GUESSING_3']]
+            dinos_to_texture = [(ci, di) for ci, di in dinos if dino_states[di] in ['GUESSED_MSG', 'GUESSED', 'GUESSING_2', 'GUESSING_3']]
+            dinos_to_label = [(ci, di) for ci, di in dinos if dino_states[di] in ['GUESSED_MSG', 'GUESSED', 'GUESSING_3']]
 
             # Overlay texture(s) on corresponding dino(s)
             disp_img = overlay_textures(tr_img, contours_dinos, dinos_to_texture)
+            overlay_labels(disp_img, contours_dinos, dinos_to_label)
 
             if guess_correct is True:
                 cv2.putText(disp_img, dino_names[previous_selected_dino] + ': Correct! Space to continue', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -555,6 +573,7 @@ def main_test():
             cv2.drawContours(disp_img, contours_ordered, active_dino, (255, 255, 255))
 
         print dino_states
+        print "Active dino:", active_dino
 
         cv2.imshow('img', img)
         cv2.imshow('disp_img', disp_img)
