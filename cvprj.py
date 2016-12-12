@@ -61,6 +61,11 @@ filt_state = {'p0': [(0, 720)] * SMA_WINDOW,
               'p2': [(1280, 0)] * SMA_WINDOW,
               'p3': [(1280, 720)] * SMA_WINDOW}
 
+# Define new image dimensions
+disp_image_height = 840
+disp_image_width = int(disp_image_height * 0.75)
+disp_image_width, disp_image_height = disp_image_width // 10 * 8, disp_image_height // 10 * 8
+
 # State of each dino in the game
 # Values are NOT_PRESENT, PRESENT, GUESSING_1, GUESSING_2, GUESSING_3, GUESSED_MSG, GUESSED
 dino_states = ['NOT_PRESENT', 'NOT_PRESENT', 'NOT_PRESENT', 'NOT_PRESENT']
@@ -312,18 +317,14 @@ def applyTransform(img, points):
     :param points: 4-list of 2-tuples.
     :return: transformed image
     """
-    # Define new image dimensions
-    height = 840
-    width = int(height * 0.75)
-    width, height = width // 10 * 8, height // 10 * 8
 
     # Define destination points
-    dst_points = np.array([[height, 0], [height, width], [0, width], [0, 0]], dtype=np.float32)
+    dst_points = np.array([[disp_image_height, 0], [disp_image_height, disp_image_width], [0, disp_image_width], [0, 0]], dtype=np.float32)
     #print np.array(points), dst_points
 
     # Apply transformation
     perspective_matrix = cv2.getPerspectiveTransform(np.array(points, dtype=np.float32), dst_points)
-    tr_img = cv2.warpPerspective(img, perspective_matrix, (height, width))
+    tr_img = cv2.warpPerspective(img, perspective_matrix, (disp_image_height, disp_image_width))
 
     return tr_img
 
@@ -464,6 +465,14 @@ def main_test():
     # Setup Video Processing
     video = cv2.VideoCapture(0)
 
+    size = (int(video.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)),
+            int(video.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)))
+    fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v')  # note the lower case
+    fps = video.get(cv2.cv.CV_CAP_PROP_FPS)
+
+    video_writer_img = cv2.VideoWriter('img.mov', fourcc, fps, size)
+    video_writer_disp_img = cv2.VideoWriter('disp_img.mov', fourcc, fps, (disp_image_height, disp_image_width))
+
     while True:
 
         # Read Image
@@ -551,6 +560,7 @@ def main_test():
             cv2.putText(disp_img, 'Put a dinosaur on the paper to begin', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         elif all_identified:
             disp_img = overlay_textures(tr_img, contours_dinos, dinos)
+            overlay_labels(disp_img, contours_dinos, dinos)
             cv2.putText(disp_img, 'You identified all the dinos!', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         else:
             # Get Dino Pose(s)
@@ -576,11 +586,15 @@ def main_test():
         print "Active dino:", active_dino
 
         cv2.imshow('img', img)
+        video_writer_img.write(img)
         cv2.imshow('disp_img', disp_img)
+        video_writer_disp_img.write(disp_img)
         # cv2.imshow('tr_img', tr_img)
         # cv2.imshow('img_bin_dinos', img_bin_dinos)
 
     cv2.destroyAllWindows()
+    video_writer_img.release()
+    video_writer_disp_img.release()
 
 
 if __name__ == '__main__':
