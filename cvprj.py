@@ -55,6 +55,9 @@ filt_state = {'p0': [(0, 0)] * SMA_WINDOW,
               'p2': [(0, 0)] * SMA_WINDOW,
               'p3': [(0, 0)] * SMA_WINDOW}
 
+eps = 0
+cv2.namedWindow('yellow')
+cv2.createTrackbar('hello', 'yellow', eps, 1000, lambda x: None)
 
 def load_templates():
     """
@@ -132,17 +135,51 @@ def _segment_color(img, color, filt=None):
     :param color: Color from COLOR_COLOR_HSV_RANGES.
     :return: binary image
     """
+    #hsv_img = cv2.medianBlur(img, 17)
+    # Convert to HSV
+    hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV_FULL)
+
     # Apply filter
     if filt == GAUSSIAN:
-        filt_img = cv2.GaussianBlur(img, (5, 5), 5)
+        filt_img = cv2.GaussianBlur(img, (11, 11), 5)
         #filt_img = cv2.medianBlur(filt_img, 5)
     elif filt == MEDIAN:
-        filt_img = cv2.medianBlur(img, 9)
+        filt_img = cv2.medianBlur(img, 3)
     else:
-        filt_img = img
+        from matplotlib import pyplot as plt
+        h, s, v = cv2.split(hsv_img)
+        rows, cols = h.shape
+        crow, ccol = rows / 2, cols / 2
 
-    # Convert to HSV
-    hsv_img = cv2.cvtColor(filt_img, cv2.COLOR_BGR2HSV_FULL)
+
+        dft = cv2.dft(np.float32(h), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+        mask = np.zeros((rows, cols, 2), np.uint8)
+        mask[crow - 30:crow + 30, ccol - 30:ccol + 30] = 1
+        fshift = dft_shift * mask
+        f_ishift = np.fft.ifftshift(fshift)
+        img_back = cv2.idft(f_ishift)
+        img_back_h = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])
+
+        dft = cv2.dft(np.float32(s), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+        mask = np.zeros((rows, cols, 2), np.uint8)
+        mask[crow - 30:crow + 30, ccol - 30:ccol + 30] = 1
+        fshift = dft_shift * mask
+        f_ishift = np.fft.ifftshift(fshift)
+        img_back = cv2.idft(f_ishift)
+        img_back_s = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])
+
+
+        hsv_img = cv2.merge((np.uint8(img_back_h), np.uint8(img_back_s), v))
+        # plt.subplot(121), plt.imshow(h, cmap = 'gray')
+        # plt.subplot(122), plt.imshow(img_back, cmap='gray')
+        # plt.show()
+
+        #raw_input()
+        # filt_img = img
+
+
 
     # Extract color
     if color == RED:
@@ -153,10 +190,10 @@ def _segment_color(img, color, filt=None):
         bin_img = cv2.inRange(hsv_img, np.array(COLOR_HSV_RANGES[color]['low']), np.array(COLOR_HSV_RANGES[color]['high']))
 
     # Perform Opening to remove small specks, closing for removing holes
-    kernel1 = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 16))
-    kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_ERODE, kernel1)
-    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel2)
+    kernel1 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel1)
+    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_DILATE, kernel2)
 
     return bin_img
 
@@ -215,13 +252,15 @@ def preprocess_homography(img):
     :param img: Raw RGB image
     :return: 4 corner points as 2-tuples in image coordinate [bottom-left, bottom-right, top-right, top-left]
     """
+    global eps
+
     # Initialize variables
     hgrf_img = img.copy()
     hgrf_points = {'red': [], 'blue1': [], 'blue2': [], 'yellow': []}
 
     # Detect required colors for corner points
     red = _segment_color(hgrf_img, RED, GAUSSIAN)
-    yellow = _segment_color(hgrf_img, YELLOW, GAUSSIAN)
+    yellow = _segment_color(hgrf_img, YELLOW, None)
     blue = _segment_color(hgrf_img, BLUE, GAUSSIAN)
 
     # Detect interest points: how?
@@ -253,7 +292,7 @@ def preprocess_homography(img):
     # YELLOW
     try:
         contours_yellow = max([c for c in contours_yellow if (30 < cv2.contourArea(c) < 1500
-                            and 3 <= len(cv2.approxPolyDP(c, 0.07 * cv2.arcLength(c, True), True)) <= 5)],
+                            and 3 <= len(cv2.approxPolyDP(c, eps / 1000. * cv2.arcLength(c, True), True)) < 5)],
                            key=cv2.contourArea)
         cv2.drawContours(hgrf_img, [contours_yellow], -1, COLOR_HSV_RANGES[YELLOW]['rgb'], 3)
 
@@ -355,7 +394,7 @@ def find_dinos(img, contours):
 
     @remark: Use global templates.
     """
-    SIMILARITY_THRESHOLD = 0.3
+    SIMILARITY_THRESHOLD = 0.35
     MIN_AREA_THRESHOLD = 3000
 
     # Select contours that are sufficiently large
@@ -363,6 +402,7 @@ def find_dinos(img, contours):
     minarea_idx = [i for i in range(len(areas)) if areas[i] > MIN_AREA_THRESHOLD]
 
     # For each contour, compare it with each of templates
+    _available_dinosaurs = [True]*4
     dino_contours = list()
     for idx in minarea_idx:
         cntr = contours[idx]
@@ -374,11 +414,17 @@ def find_dinos(img, contours):
         match_dino4 = cv2.matchShapes(cntr, dino4_template[0], 1, 0)    # using I1 moments
         matches = [match_dino1, match_dino2, match_dino3, match_dino4]
 
+        # Patch to make avoid repetitions in dinosaurs.
+        matches.sort()
+        for i in range(4):
+            if _available_dinosaurs[i]:
+                dino_contours.append((idx, matches.index(matches[i])))
+
         # If we have at least one good match, then choose the corresponding template
-        if min(matches) < SIMILARITY_THRESHOLD:
-            idx_template = matches.index(min(matches))
-            idx_contour = idx
-            dino_contours.append((idx_contour, idx_template))
+        # if min(matches) < SIMILARITY_THRESHOLD:
+        #     idx_template = matches.index(min(matches))
+        #     idx_contour = idx
+        #     dino_contours.append((idx_contour, idx_template))
 
     return dino_contours
 
@@ -416,6 +462,8 @@ def overlay_textures(img, contours, idx_template_pairs):
 
 
 def main_test():
+    global eps
+
     # Load Templates
     if not load_templates():
         print 'Dinosaur Templates NOT Loaded.'
@@ -437,10 +485,16 @@ def main_test():
 
         # Read Image
         _, img = video.read()
+
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV_FULL)
+        h, s, v = cv2.split(hsv)
+        cv2.imshow('h', v)
+
         r = _segment_color(img, RED, GAUSSIAN)
         y = _segment_color(img, YELLOW, GAUSSIAN)
         b = _segment_color(img, BLUE, GAUSSIAN)
 
+        eps = cv2.getTrackbarPos('hello', 'yellow')
         img, points = preprocess_homography(img)
         points = _filt_hgrf_points(points)
         #print np.array(points)
