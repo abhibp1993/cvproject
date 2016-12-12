@@ -12,6 +12,8 @@ import math
 import numpy as np
 from time import time
 
+RECORD_VIDEO = False
+
 # Templates for classification
 PATH_TEMPLATE_DINO1 = 'dino1.txt'
 PATH_TEMPLATE_DINO2 = 'dino2.txt'
@@ -470,11 +472,13 @@ def main_test():
     fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v')  # note the lower case
     fps = video.get(cv2.cv.CV_CAP_PROP_FPS)
 
-    video_writer_img = cv2.VideoWriter('img.mov', fourcc, fps, size)
-    video_writer_disp_img = cv2.VideoWriter('disp_img.mov', fourcc, fps, (disp_image_height, disp_image_width))
+    if RECORD_VIDEO:
+        video_writer_img = cv2.VideoWriter('img.mov', fourcc, fps, size)
+        video_writer_disp_img = cv2.VideoWriter('disp_img.mov', fourcc, fps, (disp_image_height, disp_image_width))
+
+    record_start_time = time()
 
     while True:
-
         # Read Image
         _, img_original = video.read()
         r = _segment_color(img_original, RED, GAUSSIAN)
@@ -586,15 +590,17 @@ def main_test():
         print "Active dino:", active_dino
 
         cv2.imshow('img', img)
-        video_writer_img.write(img)
         cv2.imshow('disp_img', disp_img)
-        video_writer_disp_img.write(disp_img)
-        # cv2.imshow('tr_img', tr_img)
-        # cv2.imshow('img_bin_dinos', img_bin_dinos)
+        if RECORD_VIDEO:
+            video_writer_img.write(img)
+            video_writer_disp_img.write(disp_img)
 
+    print "Total recording time:", time() - record_start_time
+
+    if RECORD_VIDEO:
+        video_writer_img.release()
+        video_writer_disp_img.release()
     cv2.destroyAllWindows()
-    video_writer_img.release()
-    video_writer_disp_img.release()
 
 
 if __name__ == '__main__':
