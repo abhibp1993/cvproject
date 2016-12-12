@@ -10,6 +10,7 @@ Authors: Abhishek N. Kulkarni, Shravan Murlidaran, John Pryor
 import cv2
 import math
 import numpy as np
+from time import time
 
 # Templates for classification
 PATH_TEMPLATE_DINO1 = 'dino1.txt'
@@ -34,10 +35,15 @@ dino3_texture = None
 dino4_texture = None
 textures = dict()
 
+previous_selected_dino = None
+guess_correct = None
+
+dino_names = ['Glyptodon', 'Stegosaurus', 'T. Rex', 'Brachiosaurus']
+
 # Color ranges
 COLOR_HSV_RANGES = {'red': {'low': [], 'high': [], 'rgb': (0, 0, 255)},
-                    'blue': {'low': [58, 33, 0], 'high': [163, 173, 255], 'rgb': (255, 0, 0)},
-                    'yellow': {'low': [35, 100, 0], 'high': [55, 255, 255], 'rgb': (0, 255, 255)},
+                    'blue': {'low': [152, 80, 51], 'high': [167, 255, 255], 'rgb': (255, 0, 0)},
+                    'yellow': {'low': [35, 100, 40], 'high': [55, 255, 255], 'rgb': (0, 255, 255)},
                     #'yellow': {'low': [27, 59, 11], 'high': [45, 255, 255], 'rgb': (0, 255, 255)},
                     'green': {'low': [25, 40, 0], 'high': [142, 134, 253]}, 'rgb': (0, 255, 0)}
 RED = 'red'
@@ -54,6 +60,15 @@ filt_state = {'p0': [(0, 0)] * SMA_WINDOW,
               'p1': [(0, 0)] * SMA_WINDOW,
               'p2': [(0, 0)] * SMA_WINDOW,
               'p3': [(0, 0)] * SMA_WINDOW}
+
+# State of each dino in the game
+# Values are NOT_PRESENT, PRESENT, GUESSING_1, GUESSING_2, GUESSING_3, GUESSED_MSG, GUESSED
+dino_states = ['NOT_PRESENT', 'NOT_PRESENT', 'NOT_PRESENT', 'NOT_PRESENT']
+# Time the dino was last seen -- used to detect when dinos are removed vs. when the detection temporarily fails to find
+# them
+dino_last_seen = [0, 0, 0, 0]
+dino_disappearance_threshold = 2 # seconds
+active_dino = None
 
 
 def load_templates():
@@ -145,16 +160,16 @@ def _segment_color(img, color, filt=None):
 
     # Extract color
     if color == RED:
-        red_mask1 = cv2.inRange(hsv_img, np.array([0, 100, 100]), np.array([10, 255, 255]))
-        red_mask2 = cv2.inRange(hsv_img, np.array([160, 100, 100]), np.array([179, 255, 255]))
+        red_mask1 = cv2.inRange(hsv_img, np.array([0, 127, 90]), np.array([0, 255, 255]))
+        red_mask2 = cv2.inRange(hsv_img, np.array([232, 129, 90]), np.array([255, 255, 255]))
         bin_img = cv2.bitwise_or(red_mask1, red_mask2)
     else:
         bin_img = cv2.inRange(hsv_img, np.array(COLOR_HSV_RANGES[color]['low']), np.array(COLOR_HSV_RANGES[color]['high']))
 
     # Perform Opening to remove small specks, closing for removing holes
-    #kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (10, 10))
-    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
-    #bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+    # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    # bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
+    # bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
 
     return bin_img
 
@@ -234,7 +249,7 @@ def preprocess_homography(img):
 
     # RED
     try:
-        contours_red = max([c for c in contours_red if (30 < cv2.contourArea(c) < 1500
+        contours_red = max([c for c in contours_red if (30 < cv2.contourArea(c) < 3000
                             and 3 <= len(cv2.approxPolyDP(c, 0.07 * cv2.arcLength(c, True), True)) <= 5)],
                            key=cv2.contourArea)
         cv2.drawContours(hgrf_img, [contours_red], -1, COLOR_HSV_RANGES[RED]['rgb'], 3)
@@ -250,7 +265,7 @@ def preprocess_homography(img):
 
     # YELLOW
     try:
-        contours_yellow = max([c for c in contours_yellow if (30 < cv2.contourArea(c) < 1500
+        contours_yellow = max([c for c in contours_yellow if (30 < cv2.contourArea(c) < 3000
                             and 3 <= len(cv2.approxPolyDP(c, 0.07 * cv2.arcLength(c, True), True)) <= 5)],
                            key=cv2.contourArea)
         cv2.drawContours(hgrf_img, [contours_yellow], -1, COLOR_HSV_RANGES[YELLOW]['rgb'], 3)
@@ -265,8 +280,8 @@ def preprocess_homography(img):
 
     # BLUE
     try:
-        contours_blue = sorted([c for c in contours_blue if (30 < cv2.contourArea(c) < 1500
-                            and 3 <= len(cv2.approxPolyDP(c, 0.07 * cv2.arcLength(c, True), True)) <= 5)],
+        contours_blue = sorted([c for c in contours_blue if (30 < cv2.contourArea(c) < 3000
+                            and -3 <= len(cv2.approxPolyDP(c, 0.07 * cv2.arcLength(c, True), True)) <= 15)],
                            key=cv2.contourArea, reverse=True)
         cv2.drawContours(hgrf_img, [contours_blue[0]], -1, COLOR_HSV_RANGES[BLUE]['rgb'], 3)
         cv2.drawContours(hgrf_img, [contours_blue[1]], -1, COLOR_HSV_RANGES[BLUE]['rgb'], 3)
@@ -390,7 +405,7 @@ def overlay_textures(img, contours, idx_template_pairs):
     :param idx_template_pairs: 2-tuple of (contour index, template index)
     :return: texture overlayed image
     """
-    print idx_template_pairs
+    # print idx_template_pairs
     ret_img = img.copy()
     for idx_cntr, idx_tmp in idx_template_pairs:
         # Create mask
@@ -414,6 +429,7 @@ def overlay_textures(img, contours, idx_template_pairs):
 
 
 def main_test():
+    global active_dino, guess_correct, previous_selected_dino
     # Load Templates
     if not load_templates():
         print 'Dinosaur Templates NOT Loaded.'
@@ -439,6 +455,10 @@ def main_test():
         y = _segment_color(img, YELLOW, GAUSSIAN)
         b = _segment_color(img, BLUE, GAUSSIAN)
 
+        # cv2.imshow('r', r)
+        # cv2.imshow('y', y)
+        # cv2.imshow('b', b)
+
         img, points = preprocess_homography(img)
         points = _filt_hgrf_points(points)
         #print np.array(points)
@@ -449,29 +469,98 @@ def main_test():
         dinos = find_dinos(img_bin_dinos, contours_dinos)
         print len(dinos)
 
-        # If NO dinosaur then
-        if len(dinos) == 0:
-            # Print on screen
-            cv2.putText(img, 'No Dinosaur!', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            disp_img = img
+        contours_ordered = [None]*4
+        for contour_idx, dino_idx in dinos:
+            contours_ordered[dino_idx] = contours_dinos[contour_idx]
 
-        # Else if dinosaur(s) is (are) identified, then
+        key = cv2.waitKey(20)
+        if key == ord('q') or key == 27:
+            break
+        elif key == ord(' ') and dino_states[active_dino] == 'GUESSED_MSG':
+            dino_states[active_dino] = 'GUESSED'
+            active_dino = None
+            guess_correct = None
+
+        try:
+            selected_dino = int(chr(key))
+            previous_selected_dino = selected_dino
+        except ValueError:
+            selected_dino = None
+
+        ##### Game logic #####
+        # Update dino_last_seen
+        for _, dino_idx in dinos:
+            dino_last_seen[dino_idx] = time()
+            if dino_states[dino_idx] == 'NOT_PRESENT':
+                dino_states[dino_idx] = 'PRESENT'
+
+        # Update dino present states
+        for i, state in enumerate(dino_states):
+            # First, mark the dino as not present if its timer has run out
+            if dino_last_seen[i] + dino_disappearance_threshold < time():
+                dino_states[i] = 'NOT_PRESENT'
+
+        # Process the user's guess
+        if active_dino is not None and selected_dino is not None:
+            if active_dino == selected_dino:
+                # Then the user guessed right
+                dino_states[active_dino] = 'GUESSED_MSG'
+                guess_correct = True
+            else:
+                # Then the user guessed wrong
+                if dino_states[active_dino] == 'GUESSING_1':
+                    dino_states[active_dino] = 'GUESSING_2'
+                elif dino_states[active_dino] == 'GUESSING_2':
+                    dino_states[active_dino] = 'GUESSING_3'
+                guess_correct = False
+
+        # If the user is not currently being asked about a dino, or if their dino has disappeared, pick a dino to ask
+        # about
+        all_identified = False
+        if active_dino is None or dino_states[active_dino] == 'NOT_PRESENT':
+            selected_dino = False
+            all_identified = True
+            active_dino = None
+            for _, dino_idx in dinos:
+                if dino_states[dino_idx] == 'PRESENT':
+                    active_dino = dino_idx
+                    all_identified = False
+                    break
+
+        if active_dino is not None and dino_states[active_dino] == 'PRESENT':
+            dino_states[active_dino] = 'GUESSING_1'
+
+        if len(dinos) == 0:
+            disp_img = tr_img
+            cv2.putText(disp_img, 'Put a dinosaur on the paper to begin', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        elif all_identified:
+            disp_img = overlay_textures(tr_img, contours_dinos, dinos)
+            cv2.putText(disp_img, 'You identified all the dinos!', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         else:
             # Get Dino Pose(s)
             # dino_types, dino_poses = get_poses(img_bin_dinos, dinos)
 
-            # Overlay texture(s) on corresponding dino(s)
-            disp_img = overlay_textures(tr_img, contours_dinos, dinos)
+            dinos_to_texture = [(ci, di) for ci, di in dinos if dino_states[di] in ['GUESSED', 'GUESSING_2', 'GUESSING_3']]
 
+            # Overlay texture(s) on corresponding dino(s)
+            disp_img = overlay_textures(tr_img, contours_dinos, dinos_to_texture)
+
+            if guess_correct is True:
+                cv2.putText(disp_img, dino_names[previous_selected_dino] + ': Correct! Space to continue', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            elif guess_correct is False:
+                cv2.putText(disp_img, dino_names[previous_selected_dino] + ': Wrong! Try Again', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            else:
+                cv2.putText(disp_img, 'Which dino is this?', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+            cv2.drawContours(disp_img, contours_ordered, active_dino, (255, 255, 255))
+
+        print dino_states
 
         cv2.imshow('img', img)
         cv2.imshow('disp_img', disp_img)
-        cv2.imshow('tr_img', tr_img)
-        cv2.imshow('img_bin_dinos', img_bin_dinos)
+        # cv2.imshow('tr_img', tr_img)
+        # cv2.imshow('img_bin_dinos', img_bin_dinos)
 
-        cv2.waitKey(3)
-        if cv2.waitKey(3) == ord('q'):
-            break
     cv2.destroyAllWindows()
 
 
